@@ -13,7 +13,9 @@ typedef enum
   FS_STM32F4xxPortF       = 5,
   FS_STM32F4xxPortG       = 6,
   FS_STM32F4xxPortH       = 7,
-  FS_STM32F4xxPortI       = 8
+  FS_STM32F4xxPortI       = 8,
+  FS_STM32F4xxPortNoPort  = 9
+
 
 }FS_STM32F4xxMuxablePinPort_e;
 
@@ -51,6 +53,6 @@ typedef struct
   void(*runPort)(FS_STM32F4xxMuxablePinPort_e port);
   void(*setPinFunction)(FS_STM32F4xxMuxablePin_t * pin, void * peripheral);
 
-}FS_STM324xxPinMux_t;
+}FS_STM32F4xxPinMux_t;
 
 #endif // FS_STM324XXPINMUX_H

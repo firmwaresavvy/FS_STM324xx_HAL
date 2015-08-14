@@ -64,7 +64,7 @@ typedef struct
   // Pin multiplexing:
 
   // Control interface.
-  FS_STM324xxPinMux_t * pinMux;
+  FS_STM32F4xxPinMux_t * pinMux;
 
   // The pins.
   FS_STM32F4xxMuxablePin_t txd;
@@ -108,9 +108,12 @@ typedef struct
 -------------------- START PUBLIC FUNCTION PROTOTYPES --------------------------
 ------------------------------------------------------------------------------*/
 
+// Data structure initialisation functions.
 void FS_STM32F4xxUSART_InitStructInit(FS_STM32F4xxUSART_InitStruct_t * initStruct);
 void FS_STM32F4xxUSART_InitReturnsStructInit(FS_STM32F4xxUSART_InitReturnsStruct_t * returnsStruct);
+void FS_STM32F4xxUSART_PeriphInitStructInit(FS_STM32F4xxUSART_PeriphInitStruct_t * initStruct);
 
+// Module initialisation.
 FS_STM32F4xxUSART_InitReturnsStruct_t
 FS_STM32F4xxUSART_Init(FS_STM32F4xxUSART_InitStruct_t * initStruct);
 
