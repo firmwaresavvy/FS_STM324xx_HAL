@@ -58,8 +58,9 @@ typedef struct
   // Pointer to the peripheral itself.
   USART_TypeDef * peripheral;
 
-  // ST's init struct.
-  USART_InitTypeDef * stInitStruct;
+  // ST's init structs.
+  USART_InitTypeDef stInitStruct;
+  USART_ClockInitTypeDef stClkInitStruct;
 
   // Pin multiplexing:
 

@@ -24,6 +24,7 @@
 // Free RTOS includes.
 #include "FreeRTOS.h"
 #include "semphr.h"
+#include "portable.h"
 
 /*------------------------------------------------------------------------------
 ------------------------------- END INCLUDES -----------------------------------
@@ -56,6 +57,7 @@ typedef struct
 
 }USART;
 
+
 /*------------------------------------------------------------------------------
 ---------------------- END PRIVATE TYPE DEFINITIONS ----------------------------
 ------------------------------------------------------------------------------*/
@@ -72,52 +74,52 @@ static _Bool initUsart(uint8_t listIndex, FS_STM32F4xxUSART_PeriphInitStruct_t *
 static uint16_t usart1_writeBytes(const char * bytes, uint16_t numBytes);
 static uint16_t usart1_writeLine(const char * line);
 static uint16_t usart1_rxBytesAvailable(void);
-static uint16_t usart1_readBytes(const char * buf, uint16_t numBytes);
-static uint16_t usart1_readLine(const char * buf);
-static uint16_t usart1_readLineTruncate(const char * buf, uint16_t maxLen);
+static uint16_t usart1_readBytes(unsigned char * buf, uint16_t numBytes);
+static uint16_t usart1_readLine(unsigned char * buf);
+static uint16_t usart1_readLineTruncate(unsigned char * buf, uint16_t maxLen);
 
 static uint16_t usart2_writeBytes(const char * bytes, uint16_t numBytes);
 static uint16_t usart2_writeLine(const char * line);
 static uint16_t usart2_rxBytesAvailable(void);
-static uint16_t usart2_readBytes(const char * buf, uint16_t numBytes);
-static uint16_t usart2_readLine(const char * buf);
-static uint16_t usart2_readLineTruncate(const char * buf, uint16_t maxLen);
+static uint16_t usart2_readBytes(unsigned char * buf, uint16_t numBytes);
+static uint16_t usart2_readLine(unsigned char * buf);
+static uint16_t usart2_readLineTruncate(unsigned char * buf, uint16_t maxLen);
 
 static uint16_t usart3_writeBytes(const char * bytes, uint16_t numBytes);
 static uint16_t usart3_writeLine(const char * line);
 static uint16_t usart3_rxBytesAvailable(void);
-static uint16_t usart3_readBytes(const char * buf, uint16_t numBytes);
-static uint16_t usart3_readLine(const char * buf);
-static uint16_t usart3_readLineTruncate(const char * buf, uint16_t maxLen);
+static uint16_t usart3_readBytes(unsigned char * buf, uint16_t numBytes);
+static uint16_t usart3_readLine(unsigned char * buf);
+static uint16_t usart3_readLineTruncate(unsigned char * buf, uint16_t maxLen);
 
 static uint16_t uart4_writeBytes(const char * bytes, uint16_t numBytes);
 static uint16_t uart4_writeLine(const char * line);
 static uint16_t uart4_rxBytesAvailable(void);
-static uint16_t uart4_readBytes(const char * buf, uint16_t numBytes);
-static uint16_t uart4_readLine(const char * buf);
-static uint16_t uart4_readLineTruncate(const char * buf, uint16_t maxLen);
+static uint16_t uart4_readBytes(unsigned char * buf, uint16_t numBytes);
+static uint16_t uart4_readLine(unsigned char * buf);
+static uint16_t uart4_readLineTruncate(unsigned char * buf, uint16_t maxLen);
 
 static uint16_t uart5_writeBytes(const char * bytes, uint16_t numBytes);
 static uint16_t uart5_writeLine(const char * line);
 static uint16_t uart5_rxBytesAvailable(void);
-static uint16_t uart5_readBytes(const char * buf, uint16_t numBytes);
-static uint16_t uart5_readLine(const char * buf);
-static uint16_t uart5_readLineTruncate(const char * buf, uint16_t maxLen);
+static uint16_t uart5_readBytes(unsigned char * buf, uint16_t numBytes);
+static uint16_t uart5_readLine(unsigned char * buf);
+static uint16_t uart5_readLineTruncate(unsigned char * buf, uint16_t maxLen);
 
 static uint16_t usart6_writeBytes(const char * bytes, uint16_t numBytes);
 static uint16_t usart6_writeLine(const char * line);
 static uint16_t usart6_rxBytesAvailable(void);
-static uint16_t usart6_readBytes(const char * buf, uint16_t numBytes);
-static uint16_t usart6_readLine(const char * buf);
-static uint16_t usart6_readLineTruncate(const char * buf, uint16_t maxLen);
+static uint16_t usart6_readBytes(unsigned char * buf, uint16_t numBytes);
+static uint16_t usart6_readLine(unsigned char * buf);
+static uint16_t usart6_readLineTruncate(unsigned char * buf, uint16_t maxLen);
 
 // Implementation of FS_DT_USARTDriver_t.
 static uint16_t writeBytes(USART * usart, const char * bytes, uint16_t numBytes);
 static uint16_t writeLine(USART * usart, const char * line);
 static uint16_t rxBytesAvailable(USART * usart);
-static uint16_t readBytes(USART * usart, const char * buf, uint16_t numBytes);
-static uint16_t readLine(USART * usart, const char * buf);
-static uint16_t readLineTruncate(USART * usart, const char * buf, uint16_t maxLen);
+static uint16_t readBytes(USART * usart, unsigned char * buf, uint16_t numBytes);
+static uint16_t readLine(USART * usart, unsigned char * buf);
+static uint16_t readLineTruncate(USART * usart, unsigned char * buf, uint16_t maxLen);
 
 // Buffer functions.
 static void bufferInit(USARTBuffer * buf);
@@ -154,6 +156,16 @@ static SemaphoreHandle_t irqSyncSemaphore;
 
 // Interface to pin multiplexing module.
 static FS_STM32F4xxPinMux_t * pinMux;
+
+static const uint32_t periphClkCmdTable[] = {
+                                              RCC_APB2Periph_USART1,
+                                              RCC_APB1Periph_USART2,
+                                              RCC_APB1Periph_USART3,
+                                              RCC_APB1Periph_UART4,
+                                              RCC_APB1Periph_UART5,
+                                              RCC_APB2Periph_USART6
+                                            };
+
 
 /*------------------------------------------------------------------------------
 --------------------- END PRIVATE GLOBAL VARIABLES -----------------------------
@@ -245,35 +257,48 @@ FS_STM32F4xxUSART_InitReturnsStruct_t FS_STM32F4xxUSART_Init(FS_STM32F4xxUSART_I
   }
 
   // Bind redirection functions to the driver instance.
+  initStruct->instance->usart1.rxBytesAvailable = usart1_rxBytesAvailable;
   initStruct->instance->usart1.readBytes = usart1_readBytes;
   initStruct->instance->usart1.readLine = usart1_readLine;
   initStruct->instance->usart1.writeBytes = usart1_writeBytes;
   initStruct->instance->usart1.writeLine = usart1_writeLine;
+  initStruct->instance->usart1.readLineTruncate = usart1_readLineTruncate;
 
+  initStruct->instance->usart2.rxBytesAvailable = usart2_rxBytesAvailable;
   initStruct->instance->usart2.readBytes = usart2_readBytes;
   initStruct->instance->usart2.readLine = usart2_readLine;
   initStruct->instance->usart2.writeBytes = usart2_writeBytes;
   initStruct->instance->usart2.writeLine = usart2_writeLine;
+  initStruct->instance->usart2.readLineTruncate = usart2_readLineTruncate;
 
+  initStruct->instance->usart3.rxBytesAvailable = usart3_rxBytesAvailable;
   initStruct->instance->usart3.readBytes = usart3_readBytes;
   initStruct->instance->usart3.readLine = usart3_readLine;
   initStruct->instance->usart3.writeBytes = usart3_writeBytes;
   initStruct->instance->usart3.writeLine = usart3_writeLine;
+  initStruct->instance->usart3.readLineTruncate = usart3_readLineTruncate;
 
+  initStruct->instance->uart4.rxBytesAvailable = uart4_rxBytesAvailable;
   initStruct->instance->uart4.readBytes = uart4_readBytes;
   initStruct->instance->uart4.readLine = uart4_readLine;
   initStruct->instance->uart4.writeBytes = uart4_writeBytes;
   initStruct->instance->uart4.writeLine = uart4_writeLine;
+  initStruct->instance->uart4.readLineTruncate = uart4_readLineTruncate;
 
+  initStruct->instance->uart5.rxBytesAvailable = uart5_rxBytesAvailable;
   initStruct->instance->uart5.readBytes = uart5_readBytes;
   initStruct->instance->uart5.readLine = uart5_readLine;
   initStruct->instance->uart5.writeBytes = uart5_writeBytes;
   initStruct->instance->uart5.writeLine = uart5_writeLine;
+  initStruct->instance->uart5.readLineTruncate = uart5_readLineTruncate;
 
+  initStruct->instance->usart6.rxBytesAvailable = usart6_rxBytesAvailable;
   initStruct->instance->usart6.readBytes = usart6_readBytes;
   initStruct->instance->usart6.readLine = usart6_readLine;
   initStruct->instance->usart6.writeBytes = usart6_writeBytes;
   initStruct->instance->usart6.writeLine = usart6_writeLine;
+  initStruct->instance->usart6.readLineTruncate = usart6_readLineTruncate;
+
 
   returns.mainLoop = mainLoop;
   returns.success =  true;
@@ -296,7 +321,7 @@ void FS_STM32F4xxUSART_PeriphInitStructInit(FS_STM32F4xxUSART_PeriphInitStruct_t
   initStruct->sclk.port = FS_STM32F4xxPortNoPort;
   initStruct->txBufferSizeBytes = 0;
   initStruct->rxBufferSizeBytes = 0;
-  USART_StructInit(initStruct->stInitStruct);
+  USART_StructInit( &( initStruct->stInitStruct ) );
 }
 
 /*------------------------------------------------------------------------------
@@ -311,6 +336,8 @@ void FS_STM32F4xxUSART_PeriphInitStructInit(FS_STM32F4xxUSART_PeriphInitStruct_t
 // Init an individual peripheral instance.
 static _Bool initUsart(uint8_t listIndex, FS_STM32F4xxUSART_PeriphInitStruct_t * initStruct)
 {
+  GPIO_InitTypeDef gpioInitStruct;
+
   /*
   Firstly, check if enough memory remains in the master buffer to
   satisfy the allocation requirements. If not, go no further.
@@ -324,14 +351,28 @@ static _Bool initUsart(uint8_t listIndex, FS_STM32F4xxUSART_PeriphInitStruct_t *
   // Copy the pertinent information into the USART list.
   usartList[listIndex].enabled = true;
   usartList[listIndex].peripheral = initStruct->peripheral;
+  usartList[listIndex].txBuffer.length = initStruct->txBufferSizeBytes;
+  usartList[listIndex].rxBuffer.length = initStruct->rxBufferSizeBytes;
 
   // Init the buffers.
   bufferInit( &( usartList[listIndex].txBuffer ) );
   bufferInit( &( usartList[listIndex].rxBuffer ) );
 
-  // Start clocking the appropriate port blocks and change the pin functions.
+  // Start clocking the appropriate port blocks and change the pin functions:
+
+  // Set up a standard init struct to use for each pin.
+  GPIO_StructInit(&gpioInitStruct);
+  gpioInitStruct.GPIO_Mode = GPIO_Mode_AF;
+  gpioInitStruct.GPIO_OType = GPIO_OType_PP;
+  gpioInitStruct.GPIO_Speed = GPIO_Speed_50MHz;
+
+  // Tx pin.
   pinMux->runPort(initStruct->txd.port);
+  gpioInitStruct.GPIO_Pin = (uint16_t)0x1 << (uint8_t)initStruct->txd.bit;
+  GPIO_Init
   pinMux->setPinFunction( &( initStruct->txd), (void *)initStruct->peripheral );
+
+
   pinMux->runPort(initStruct->rxd.port);
   pinMux->setPinFunction( &( initStruct->rxd), (void *)initStruct->peripheral );
 
@@ -343,19 +384,41 @@ static _Bool initUsart(uint8_t listIndex, FS_STM32F4xxUSART_PeriphInitStruct_t *
   }
 
   // Determine if any hardware flow control functionality is required.
-  if( ( USART_HardwareFlowControl_CTS == initStruct->stInitStruct->USART_HardwareFlowControl ) ||
-      ( USART_HardwareFlowControl_RTS_CTS== initStruct->stInitStruct->USART_HardwareFlowControl ) )
+  if( ( USART_HardwareFlowControl_CTS == initStruct->stInitStruct.USART_HardwareFlowControl ) ||
+      ( USART_HardwareFlowControl_RTS_CTS == initStruct->stInitStruct.USART_HardwareFlowControl ) )
   {
     pinMux->runPort(initStruct->cts.port);
     pinMux->setPinFunction( &( initStruct->cts ), (void *)initStruct->peripheral );
   }
 
-  if( ( USART_HardwareFlowControl_RTS == initStruct->stInitStruct->USART_HardwareFlowControl ) ||
-      ( USART_HardwareFlowControl_RTS_CTS== initStruct->stInitStruct->USART_HardwareFlowControl ) )
+  if( ( USART_HardwareFlowControl_RTS == initStruct->stInitStruct.USART_HardwareFlowControl ) ||
+      ( USART_HardwareFlowControl_RTS_CTS== initStruct->stInitStruct.USART_HardwareFlowControl ) )
   {
     pinMux->runPort(initStruct->rts.port);
     pinMux->setPinFunction( &( initStruct->rts ), (void *)initStruct->peripheral );
   }
+
+  // Enable the clock to the U(S)ART in question.
+  if( ( listIndex >= 1 ) || ( listIndex <= 4 ) )
+  {
+    RCC_APB1PeriphClockCmd(periphClkCmdTable[listIndex], ENABLE);
+  }
+
+  else
+  {
+    RCC_APB2PeriphClockCmd(periphClkCmdTable[listIndex], ENABLE);
+  }
+
+  // If synchronous mode has been requested and the peripheral is capable of it, set up the clock.
+  USART_ClockInit( initStruct->peripheral, &( initStruct->stClkInitStruct ) );
+
+  // Initialise the U(S)ART peripheral and enable it.
+  USART_Init( initStruct->peripheral, &( initStruct->stInitStruct ) );
+  USART_Cmd(initStruct->peripheral, ENABLE);
+
+  // Set up the interrupts:
+  USART_ITConfig(initStruct->peripheral, USART_IT_TXE | USART_IT_RXNE, ENABLE);
+
 
   return true;
 }
@@ -402,7 +465,7 @@ static uint16_t usart1_rxBytesAvailable(void)
 
 }
 
-static uint16_t usart1_readBytes(const char * buf, uint16_t numBytes)
+static uint16_t usart1_readBytes(unsigned char * buf, uint16_t numBytes)
 {
   // Redirect to implementation function if peripheral enabled.
   if(usartList[0].enabled)
@@ -416,7 +479,7 @@ static uint16_t usart1_readBytes(const char * buf, uint16_t numBytes)
   }
 }
 
-static uint16_t usart1_readLine(const char * buf)
+static uint16_t usart1_readLine(unsigned char * buf)
 {
   // Redirect to implementation function if peripheral enabled.
   if(usartList[0].enabled)
@@ -430,7 +493,7 @@ static uint16_t usart1_readLine(const char * buf)
   }
 }
 
-static uint16_t usart1_readLineTruncate(const char * buf, uint16_t maxLen)
+static uint16_t usart1_readLineTruncate(unsigned char * buf, uint16_t maxLen)
 {
   if(usartList[0].enabled)
   {
@@ -484,7 +547,7 @@ static uint16_t usart2_rxBytesAvailable(void)
   }
 }
 
-static uint16_t usart2_readBytes(const char * buf, uint16_t numBytes)
+static uint16_t usart2_readBytes(unsigned char * buf, uint16_t numBytes)
 {
   // Redirect to implementation function if peripheral enabled.
   if(usartList[1].enabled)
@@ -498,7 +561,7 @@ static uint16_t usart2_readBytes(const char * buf, uint16_t numBytes)
   }
 }
 
-static uint16_t usart2_readLine(const char * buf)
+static uint16_t usart2_readLine(unsigned char * buf)
 {
   // Redirect to implementation function if peripheral enabled.
   if(usartList[1].enabled)
@@ -512,7 +575,7 @@ static uint16_t usart2_readLine(const char * buf)
   }
 }
 
-static uint16_t usart2_readLineTruncate(const char * buf, uint16_t maxLen)
+static uint16_t usart2_readLineTruncate(unsigned char * buf, uint16_t maxLen)
 {
   if(usartList[1].enabled)
   {
@@ -566,7 +629,7 @@ static uint16_t usart3_rxBytesAvailable(void)
   }
 }
 
-static uint16_t usart3_readBytes(const char * buf, uint16_t numBytes)
+static uint16_t usart3_readBytes(unsigned char * buf, uint16_t numBytes)
 {
   // Redirect to implementation function if peripheral enabled.
   if(usartList[2].enabled)
@@ -580,7 +643,7 @@ static uint16_t usart3_readBytes(const char * buf, uint16_t numBytes)
   }
 }
 
-static uint16_t usart3_readLine(const char * buf)
+static uint16_t usart3_readLine(unsigned char * buf)
 {
   // Redirect to implementation function if peripheral enabled.
   if(usartList[2].enabled)
@@ -594,7 +657,7 @@ static uint16_t usart3_readLine(const char * buf)
   }
 }
 
-static uint16_t usart3_readLineTruncate(const char * buf, uint16_t maxLen)
+static uint16_t usart3_readLineTruncate(unsigned char * buf, uint16_t maxLen)
 {
   if(usartList[2].enabled)
   {
@@ -648,7 +711,7 @@ static uint16_t uart4_rxBytesAvailable(void)
   }
 }
 
-static uint16_t uart4_readBytes(const char * buf, uint16_t numBytes)
+static uint16_t uart4_readBytes(unsigned char * buf, uint16_t numBytes)
 {
   // Redirect to implementation function if peripheral enabled.
   if(usartList[3].enabled)
@@ -662,7 +725,7 @@ static uint16_t uart4_readBytes(const char * buf, uint16_t numBytes)
   }
 }
 
-static uint16_t uart4_readLine(const char * buf)
+static uint16_t uart4_readLine(unsigned char * buf)
 {
   // Redirect to implementation function if peripheral enabled.
   if(usartList[3].enabled)
@@ -676,7 +739,7 @@ static uint16_t uart4_readLine(const char * buf)
   }
 }
 
-static uint16_t uart4_readLineTruncate(const char * buf, uint16_t maxLen)
+static uint16_t uart4_readLineTruncate(unsigned char * buf, uint16_t maxLen)
 {
   if(usartList[3].enabled)
   {
@@ -731,7 +794,7 @@ static uint16_t uart5_rxBytesAvailable(void)
 }
 
 
-static uint16_t uart5_readBytes(const char * buf, uint16_t numBytes)
+static uint16_t uart5_readBytes(unsigned char * buf, uint16_t numBytes)
 {
   // Redirect to implementation function if peripheral enabled.
   if(usartList[4].enabled)
@@ -745,7 +808,7 @@ static uint16_t uart5_readBytes(const char * buf, uint16_t numBytes)
   }
 }
 
-static uint16_t uart5_readLine(const char * buf)
+static uint16_t uart5_readLine(unsigned char * buf)
 {
   // Redirect to implementation function if peripheral enabled.
   if(usartList[4].enabled)
@@ -759,7 +822,7 @@ static uint16_t uart5_readLine(const char * buf)
   }
 }
 
-static uint16_t uart5_readLineTruncate(const char * buf, uint16_t maxLen)
+static uint16_t uart5_readLineTruncate(unsigned char * buf, uint16_t maxLen)
 {
   if(usartList[4].enabled)
   {
@@ -814,7 +877,7 @@ static uint16_t usart6_rxBytesAvailable(void)
 }
 
 
-static uint16_t usart6_readBytes(const char * buf, uint16_t numBytes)
+static uint16_t usart6_readBytes(unsigned char * buf, uint16_t numBytes)
 {
   // Redirect to implementation function if peripheral enabled.
   if(usartList[5].enabled)
@@ -828,7 +891,7 @@ static uint16_t usart6_readBytes(const char * buf, uint16_t numBytes)
   }
 }
 
-static uint16_t usart6_readLine(const char * buf)
+static uint16_t usart6_readLine(unsigned char * buf)
 {
   // Redirect to implementation function if peripheral enabled.
   if(usartList[5].enabled)
@@ -842,7 +905,7 @@ static uint16_t usart6_readLine(const char * buf)
   }
 }
 
-static uint16_t usart6_readLineTruncate(const char * buf, uint16_t maxLen)
+static uint16_t usart6_readLineTruncate(unsigned char * buf, uint16_t maxLen)
 {
   if(usartList[5].enabled)
   {
@@ -858,7 +921,7 @@ static uint16_t usart6_readLineTruncate(const char * buf, uint16_t maxLen)
 // Implementation of FS_DT_USARTDriver_t.
 static uint16_t writeBytes(USART * usart, const char * bytes, uint16_t numBytes)
 {
-  uint16_t spaceAfterTail, bytesToCopy, overflowBytes;
+  uint16_t spaceAfterTail, overflowBytes;
 
   // Check that the number of bytes to write won't overwhelm the buffer.
   if(numBytes > usart->txBuffer.length)
@@ -929,6 +992,11 @@ static uint16_t writeBytes(USART * usart, const char * bytes, uint16_t numBytes)
     {
       usart->txBuffer.highWater = usart->txBuffer.highWater;
     }
+
+    // Give the mutex back.
+    xSemaphoreGive(usart->txBuffer.mutex);
+
+    return numBytes;
   }
 
   // Mutex timed out.
@@ -970,23 +1038,280 @@ static uint16_t writeLine(USART * usart, const char * line)
 
 static uint16_t rxBytesAvailable(USART * usart)
 {
-  // TODO: Work out if we need to get the mutex or not here!!
-  return usart->rxBuffer.fillLevel;
+  uint16_t retVal;
+
+  retVal = 0;
+
+  if( xSemaphoreTake( usart->rxBuffer.mutex,
+                      FS_STM32F4XXUSART_BUFFER_MUTEX_TIMEOUT_TICKS ) )
+  {
+    retVal = usart->rxBuffer.fillLevel;
+    xSemaphoreGive(usart->txBuffer.mutex);
+  }
+
+  return retVal;
 }
 
-static uint16_t readBytes(USART * usart, const char * buf, uint16_t numBytes)
+static uint16_t readBytes(USART * usart, unsigned char * buf, uint16_t numBytes)
 {
+  uint16_t bytesToRead, bytesBeforeBufferEnd, bufferAfterHead, secondBlockLength;
 
+  if( xSemaphoreTake( usart->rxBuffer.mutex,
+                      FS_STM32F4XXUSART_BUFFER_MUTEX_TIMEOUT_TICKS ) )
+  {
+    // If there at least the requested number of bytes are available, we will copy the requested number.
+    if(usart->rxBuffer.fillLevel >= numBytes)
+    {
+      bytesToRead = numBytes;
+    }
+
+    // Otherwise we'll copy whatever is available.
+    else
+    {
+      bytesToRead = usart->rxBuffer.fillLevel;
+    }
+
+    /*
+    Determine if the bytes to copy are in one contiguous block or if we need to
+    copy one block from the end of the buffer and then another from the start.
+    */
+    bufferAfterHead = usart->rxBuffer.base + usart->rxBuffer.length - usart->rxBuffer.head;
+
+    if(bytesToRead <= bufferAfterHead)
+    {
+      memcpy(buf, &( masterBuffer[usart->rxBuffer.head] ), bytesToRead);
+
+      // Wrap the head pointer if necessary.
+      if(bytesToRead == bufferAfterHead)
+      {
+        usart->rxBuffer.head = usart->rxBuffer.base;
+      }
+
+      else
+      {
+        usart->rxBuffer.head += bytesToRead;
+      }
+    }
+
+    else
+    {
+      bytesBeforeBufferEnd = usart->rxBuffer.base + usart->rxBuffer.length - usart->rxBuffer.head;
+      secondBlockLength = bytesToRead - bytesBeforeBufferEnd;
+
+      memcpy( buf, &( masterBuffer[usart->rxBuffer.head] ), bytesBeforeBufferEnd);
+      memcpy( &( buf[bytesBeforeBufferEnd] ),
+              &( masterBuffer[usart->rxBuffer.base] ),
+              secondBlockLength );
+
+      usart->rxBuffer.head = usart->rxBuffer.base + secondBlockLength;
+    }
+
+    // Release the buffer's mutex.
+    xSemaphoreGive(usart->rxBuffer.mutex);
+
+    return bytesToRead;
+  }
+
+  // Could not get the mutex - no bytes read.
+  else
+  {
+    return 0;
+  }
 }
 
-static uint16_t readLine(USART * usart, const char * buf)
+static uint16_t readLine(USART * usart, unsigned char * buf)
 {
+  uint16_t i, bufPtr, bytesToReadAfterHead;
+  _Bool foundLineEnding;
 
+
+  if( xSemaphoreTake( usart->rxBuffer.mutex,
+                      FS_STM32F4XXUSART_BUFFER_MUTEX_TIMEOUT_TICKS ) )
+  {
+    // If there's no data in the buffer, we don't need to go any further.
+    if(usart->rxBuffer.fillLevel)
+    {
+      foundLineEnding = false;
+      bufPtr = usart->rxBuffer.head;
+
+      // Loop over the received bytes to locate a line ending.
+      for(i = 0; i < usart->rxBuffer.fillLevel; i++)
+      {
+        if( '\n' == masterBuffer[bufPtr] )
+        {
+          foundLineEnding = true;
+          break;
+        }
+
+        // Wrap the pointer if necessary.
+        if( bufPtr == ( usart->rxBuffer.base + usart->rxBuffer.length ) )
+        {
+          bufPtr = usart->rxBuffer.base;
+        }
+
+        else
+        {
+          bufPtr++;
+        }
+      }
+
+      // If a line was found, copy it into the callers buffer.
+      if(foundLineEnding)
+      {
+        /*
+        We only care about the cases where the line ending was *not* the first byte in the
+        buffer (as that would imply a line length of 0).
+        */
+        if(bufPtr > usart->rxBuffer.head)
+        {
+          /*
+          The line is entirely contained above the head pointer in memory -
+          a single block copy is required.
+          */
+          memcpy( buf, &( masterBuffer[usart->rxBuffer.head] ), i - 1 );
+        }
+
+        /*
+        In this case, the string is split between the end and the beginning of the buffer
+        so 2 separate block copies are required.
+        */
+        else if(bufPtr < usart->rxBuffer.head)
+        {
+          bytesToReadAfterHead = usart->rxBuffer.base + usart->rxBuffer.length - usart->rxBuffer.head;
+          memcpy( buf, &( masterBuffer[usart->rxBuffer.head] ), bytesToReadAfterHead );
+          memcpy( &( buf[bytesToReadAfterHead] ),
+                  &( masterBuffer[usart->rxBuffer.base] ),
+                  ( i - 1 ) - bytesToReadAfterHead );
+        }
+
+        // Append a NULL terminator so that the target buffer contains a string.
+        buf[i - 1] = 0;
+        xSemaphoreGive(usart->rxBuffer.mutex);
+        return i - 1;
+      }
+
+      // No line found - no bytes read.
+      else
+      {
+        xSemaphoreGive(usart->rxBuffer.mutex);
+        return 0;
+      }
+    }
+
+    // No data available.
+    else
+    {
+      return 0;
+    }
+  }
+
+  // Could not take the semaphore - no bytes read.
+  else
+  {
+    return 0;
+  }
 }
 
-static uint16_t readLineTruncate(USART * usart, const char * buf, uint16_t maxLen)
+static uint16_t readLineTruncate(USART * usart, unsigned char * buf, uint16_t maxLen)
 {
+  // Only return anything if there's a line in the buffer. Read back a maximum
+  // of maxLen bytes and purge any excess bytes from the buffer.
 
+  uint16_t i, bufPtr, bytesToReadAfterHead;
+  _Bool foundLineEnding;
+
+
+  if( xSemaphoreTake( usart->rxBuffer.mutex,
+                      FS_STM32F4XXUSART_BUFFER_MUTEX_TIMEOUT_TICKS ) )
+  {
+    // If there's no data in the buffer, we don't need to go any further.
+    if(usart->rxBuffer.fillLevel)
+    {
+      foundLineEnding = false;
+      bufPtr = usart->rxBuffer.head;
+
+      // Loop over the received bytes to locate a line ending.
+      for(i = 0; i < usart->rxBuffer.fillLevel; i++)
+      {
+        if( '\n' == masterBuffer[bufPtr] )
+        {
+          foundLineEnding = true;
+          break;
+        }
+
+        // Wrap the pointer if necessary.
+        if( bufPtr == ( usart->rxBuffer.base + usart->rxBuffer.length ) )
+        {
+          bufPtr = usart->rxBuffer.base;
+        }
+
+        else
+        {
+          bufPtr++;
+        }
+      }
+
+      // If a line was found, copy it into the callers buffer.
+      if(foundLineEnding)
+      {
+        // If a line was found but it's longer than maxLen, we need to truncate it.
+        if( ( i > 0 ) && ( i - 1 ) > maxLen )
+        {
+          i = maxLen + 1;
+        }
+
+        /*
+        We only care about the cases where the line ending was *not* the first byte in the
+        buffer (as that would imply a line length of 0).
+        */
+        if(bufPtr > usart->rxBuffer.head)
+        {
+          /*
+          The line is entirely contained above the head pointer in memory -
+          a single block copy is required.
+          */
+          memcpy( buf, &( masterBuffer[usart->rxBuffer.head] ), i - 1 );
+        }
+
+        /*
+        In this case, the string is split between the end and the beginning of the buffer
+        so 2 separate block copies are required.
+        */
+        else if(bufPtr < usart->rxBuffer.head)
+        {
+          bytesToReadAfterHead = usart->rxBuffer.base + usart->rxBuffer.length - usart->rxBuffer.head;
+          memcpy( buf, &( masterBuffer[usart->rxBuffer.head] ), bytesToReadAfterHead );
+          memcpy( &( buf[bytesToReadAfterHead] ),
+                  &( masterBuffer[usart->rxBuffer.base] ),
+                  ( i - 1 ) - bytesToReadAfterHead );
+        }
+
+        // Append a NULL terminator so that the target buffer contains a string.
+        buf[i - 1] = 0;
+        xSemaphoreGive(usart->rxBuffer.mutex);
+        return i - 1;
+      }
+
+      // No line found - no bytes read.
+      else
+      {
+        xSemaphoreGive(usart->rxBuffer.mutex);
+        return 0;
+      }
+    }
+
+    // No data available.
+    else
+    {
+      return 0;
+    }
+  }
+
+  // Could not take the semaphore - no bytes read.
+  else
+  {
+    return 0;
+  }
 }
 
 static void mainLoop(void * params)
@@ -1032,13 +1357,66 @@ static void mainLoop(void * params)
 // Buffer functions.
 static void bufferInit(USARTBuffer * buf)
 {
+  // Initialise the pointers.
+  buf->base = masterBufferAllocatedBytes;
+  buf->head = buf->base;
+  buf->tail = buf->base;
 
+  // Initialise the metric variables.
+  buf->fillLevel = 0;
+  buf->highWater = 0;
+
+  // Remove the allocated bytes from availability.
+  masterBufferAllocatedBytes += buf->length;
+
+  // Set up a mutex for the buffer.
+  buf->mutex = xSemaphoreCreateMutex();
+}
+
+static unsigned char bufferPeek(USARTBuffer * buf, uint16_t depth)
+{
+  uint16_t bytesAfterHeadBeforeEnd;
+  unsigned char retVal;
+
+  if( xSemaphoreTake(buf->mutex,  FS_STM32F4XXUSART_BUFFER_MUTEX_TIMEOUT_TICKS) )
+  {
+    // Specified index is outside the fill level.
+    if(buf->fillLevel > depth)
+    {
+      xSemaphoreGive(buf->mutex);
+
+      // Signal an error with a byte value outside the ASCII range.
+      return 0xFF;
+    }
+
+    // Work out exactly which byte the caller wants to look at:
+
+    bytesAfterHeadBeforeEnd = ( buf->base + buf->length ) - buf->head;
+
+    if(bytesAfterHeadBeforeEnd >= depth)
+    {
+      retVal = masterBuffer[buf->base + buf->head + depth];
+    }
+
+    else
+    {
+      retVal = masterBuffer[buf->base + depth - bytesAfterHeadBeforeEnd];
+    }
+
+    xSemaphoreGive(buf->mutex);
+    return retVal;
+  }
+
+  // Couldn't get the buffer's mutex.
+  else
+  {
+    // Signal an error with a byte value outside the ASCII range.
+    return 0xFF;
+  }
 }
 
 static void bufferPush(USARTBuffer * buf, unsigned char data)
 {
-  TickType_t mutexTimeoutTicks;
-
   // Wait until the buffer is available.
   if( xSemaphoreTake(buf->mutex,  FS_STM32F4XXUSART_BUFFER_MUTEX_TIMEOUT_TICKS) )
   {
@@ -1084,8 +1462,6 @@ static _Bool bufferPop(USARTBuffer *  buf, unsigned char * data)
 {
    _Bool success;
 
-  TickType_t mutexTimeoutTicks;
-
   // Wait until the buffer is available.
   if( xSemaphoreTake(buf->mutex,  FS_STM32F4XXUSART_BUFFER_MUTEX_TIMEOUT_TICKS) )
   {
@@ -1128,32 +1504,56 @@ static _Bool bufferPop(USARTBuffer *  buf, unsigned char * data)
 // Interrupt handlers.
 void USART1_IRQHandler(void)
 {
+  static BaseType_t higherPriorityTaskWoken;
 
+  higherPriorityTaskWoken = pdFALSE;
+  xSemaphoreGiveFromISR(irqSyncSemaphore, &higherPriorityTaskWoken);
+  portYIELD_FROM_ISR(higherPriorityTaskWoken);
 }
 
 void USART2_IRQHandler(void)
 {
+  static BaseType_t higherPriorityTaskWoken;
 
+  higherPriorityTaskWoken = pdFALSE;
+  xSemaphoreGiveFromISR(irqSyncSemaphore, &higherPriorityTaskWoken);
+  portYIELD_FROM_ISR(higherPriorityTaskWoken);
 }
 
 void USART3_IRQHandler(void)
 {
+  static BaseType_t higherPriorityTaskWoken;
 
+  higherPriorityTaskWoken = pdFALSE;
+  xSemaphoreGiveFromISR(irqSyncSemaphore, &higherPriorityTaskWoken);
+  portYIELD_FROM_ISR(higherPriorityTaskWoken);
 }
 
 void UART4_IRQHandler(void)
 {
+  static BaseType_t higherPriorityTaskWoken;
 
+  higherPriorityTaskWoken = pdFALSE;
+  xSemaphoreGiveFromISR(irqSyncSemaphore, &higherPriorityTaskWoken);
+  portYIELD_FROM_ISR(higherPriorityTaskWoken);
 }
 
 void UART5_IRQHandler(void)
 {
+  static BaseType_t higherPriorityTaskWoken;
 
+  higherPriorityTaskWoken = pdFALSE;
+  xSemaphoreGiveFromISR(irqSyncSemaphore, &higherPriorityTaskWoken);
+  portYIELD_FROM_ISR(higherPriorityTaskWoken);
 }
 
 void USART6_IRQHandler(void)
 {
+  static BaseType_t higherPriorityTaskWoken;
 
+  higherPriorityTaskWoken = pdFALSE;
+  xSemaphoreGiveFromISR(irqSyncSemaphore, &higherPriorityTaskWoken);
+  portYIELD_FROM_ISR(higherPriorityTaskWoken);
 }
 
 /*------------------------------------------------------------------------------
