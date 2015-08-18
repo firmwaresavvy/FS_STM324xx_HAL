@@ -62,11 +62,6 @@ typedef struct
   USART_InitTypeDef stInitStruct;
   USART_ClockInitTypeDef stClkInitStruct;
 
-  // Pin multiplexing:
-
-  // Control interface.
-  FS_STM32F4xxPinMux_t * pinMux;
-
   // The pins.
   FS_STM32F4xxMuxablePin_t txd;
   FS_STM32F4xxMuxablePin_t rxd;

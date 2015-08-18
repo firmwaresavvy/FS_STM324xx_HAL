@@ -147,15 +147,12 @@ static char masterBuffer[FS_STM32F4XXUSART_MASTER_BUFFER_LENGTH_BYTES];
 uint16_t masterBufferAllocatedBytes;
 
 /*
-List to hold control/management details of all U(S)ART peripherals.s
+List to hold control/management details of all U(S)ART peripherals.
 */
 static USART usartList[6];
 
 // Interrupt synchronisation semaphore - allows the task to block when no work exists to be done.
 static SemaphoreHandle_t irqSyncSemaphore;
-
-// Interface to pin multiplexing module.
-static FS_STM32F4xxPinMux_t * pinMux;
 
 static const uint32_t periphClkCmdTable[] = {
                                               RCC_APB2Periph_USART1,
@@ -165,6 +162,15 @@ static const uint32_t periphClkCmdTable[] = {
                                               RCC_APB1Periph_UART5,
                                               RCC_APB2Periph_USART6
                                             };
+
+static const uint8_t afMaskTable[] = {
+                                        GPIO_AF_USART1,
+                                        GPIO_AF_USART2,
+                                        GPIO_AF_USART3,
+                                        GPIO_AF_UART4,
+                                        GPIO_AF_UART5,
+                                        GPIO_AF_USART6
+                                     };
 
 
 /*------------------------------------------------------------------------------
@@ -309,18 +315,35 @@ void FS_STM32F4xxUSART_PeriphInitStructInit(FS_STM32F4xxUSART_PeriphInitStruct_t
 {
   initStruct->initialise = false;
   initStruct->peripheral = NULL;
-  initStruct->txd.bit = FS_STM32F4xxPinNoPin;
-  initStruct->txd.port = FS_STM32F4xxPortNoPort;
-  initStruct->rxd.bit = FS_STM32F4xxPinNoPin;
-  initStruct->rxd.port = FS_STM32F4xxPortNoPort;
-  initStruct->cts.bit = FS_STM32F4xxPinNoPin;
-  initStruct->cts.port = FS_STM32F4xxPortNoPort;
-  initStruct->rts.bit = FS_STM32F4xxPinNoPin;
-  initStruct->rts.port = FS_STM32F4xxPortNoPort;
-  initStruct->sclk.bit = FS_STM32F4xxPinNoPin;
-  initStruct->sclk.port = FS_STM32F4xxPortNoPort;
+
+  initStruct->txd.pinMask = 0;
+  initStruct->txd.port = NULL;
+  initStruct->txd.pinSource = 0;
+  initStruct->txd.portRCCMask = 0;
+
+  initStruct->rxd.pinMask = 0;
+  initStruct->rxd.port = NULL;
+  initStruct->rxd.pinSource = 0;
+  initStruct->rxd.portRCCMask = 0;
+
+  initStruct->cts.pinMask = 0;
+  initStruct->cts.port = NULL;
+  initStruct->cts.pinSource = 0;
+  initStruct->cts.portRCCMask = 0;
+
+  initStruct->rts.pinMask = 0;
+  initStruct->rts.port = NULL;
+  initStruct->rts.pinSource = 0;
+  initStruct->rts.portRCCMask = 0;
+
+  initStruct->sclk.pinMask = 0;
+  initStruct->sclk.port = NULL;
+  initStruct->sclk.pinSource = 0;
+  initStruct->sclk.portRCCMask = 0;
+
   initStruct->txBufferSizeBytes = 0;
   initStruct->rxBufferSizeBytes = 0;
+
   USART_StructInit( &( initStruct->stInitStruct ) );
 }
 
@@ -337,7 +360,6 @@ void FS_STM32F4xxUSART_PeriphInitStructInit(FS_STM32F4xxUSART_PeriphInitStruct_t
 static _Bool initUsart(uint8_t listIndex, FS_STM32F4xxUSART_PeriphInitStruct_t * initStruct)
 {
   GPIO_InitTypeDef gpioInitStruct;
-
   /*
   Firstly, check if enough memory remains in the master buffer to
   satisfy the allocation requirements. If not, go no further.
@@ -366,36 +388,73 @@ static _Bool initUsart(uint8_t listIndex, FS_STM32F4xxUSART_PeriphInitStruct_t *
   gpioInitStruct.GPIO_OType = GPIO_OType_PP;
   gpioInitStruct.GPIO_Speed = GPIO_Speed_50MHz;
 
-  // Tx pin.
-  pinMux->runPort(initStruct->txd.port);
-  gpioInitStruct.GPIO_Pin = (uint16_t)0x1 << (uint8_t)initStruct->txd.bit;
-  GPIO_Init
-  pinMux->setPinFunction( &( initStruct->txd), (void *)initStruct->peripheral );
+  // Tx pin:
 
+  // Ensure the port block is being clocked.
+  RCC_AHB1PeriphClockCmd(initStruct->txd.portRCCMask, ENABLE);
 
-  pinMux->runPort(initStruct->rxd.port);
-  pinMux->setPinFunction( &( initStruct->rxd), (void *)initStruct->peripheral );
+  // Init the pin.
+  gpioInitStruct.GPIO_Pin = initStruct->txd.pinMask;
+  GPIO_Init(initStruct->txd.port, &gpioInitStruct);
 
-  // Determine if synchronous mode is to be used.
-  if(FS_STM32F4xxPinNoPin != initStruct->sclk.bit)
+  // Set the pin's alternate function appropriately.
+  GPIO_PinAFConfig(initStruct->txd.port, initStruct->txd.pinSource, afMaskTable[listIndex]);
+
+  // Rx pin:
+
+  // Ensure the port block is being clocked.
+  RCC_AHB1PeriphClockCmd(initStruct->rxd.portRCCMask, ENABLE);
+
+  // Init the pin.
+  gpioInitStruct.GPIO_Pin = initStruct->rxd.pinMask;
+  GPIO_Init(initStruct->rxd.port, &gpioInitStruct);
+
+  // Set the pin's alternate function appropriately.
+  GPIO_PinAFConfig(initStruct->rxd.port, initStruct->rxd.pinSource, afMaskTable[listIndex]);
+
+  // Determine if synchronous mode is to be used. If so, set up the clock pin:
+  if(NULL != initStruct->sclk.port)
   {
-    pinMux->runPort(initStruct->sclk.port);
-    pinMux->setPinFunction( &( initStruct->sclk), (void *)initStruct->peripheral );
+    // Ensure the port block is being clocked.
+    RCC_AHB1PeriphClockCmd(initStruct->sclk.portRCCMask, ENABLE);
+
+    // Init the pin.
+    gpioInitStruct.GPIO_Pin = initStruct->sclk.pinMask;
+    GPIO_Init(initStruct->sclk.port, &gpioInitStruct);
+
+    // Set the pin's alternate function appropriately.
+    GPIO_PinAFConfig(initStruct->sclk.port, initStruct->sclk.pinSource, afMaskTable[listIndex]);
   }
 
-  // Determine if any hardware flow control functionality is required.
+  // Determine if any hardware flow control functionality is required. If so set up the appropriate pin(s):
+
+
   if( ( USART_HardwareFlowControl_CTS == initStruct->stInitStruct.USART_HardwareFlowControl ) ||
       ( USART_HardwareFlowControl_RTS_CTS == initStruct->stInitStruct.USART_HardwareFlowControl ) )
   {
-    pinMux->runPort(initStruct->cts.port);
-    pinMux->setPinFunction( &( initStruct->cts ), (void *)initStruct->peripheral );
+    // Ensure the port block is being clocked.
+    RCC_AHB1PeriphClockCmd(initStruct->cts.portRCCMask, ENABLE);
+
+    // Init the pin.
+    gpioInitStruct.GPIO_Pin = initStruct->cts.pinMask;
+    GPIO_Init(initStruct->cts.port, &gpioInitStruct);
+
+    // Set the pin's alternate function appropriately.
+    GPIO_PinAFConfig(initStruct->cts.port, initStruct->cts.pinSource, afMaskTable[listIndex]);
   }
 
   if( ( USART_HardwareFlowControl_RTS == initStruct->stInitStruct.USART_HardwareFlowControl ) ||
       ( USART_HardwareFlowControl_RTS_CTS== initStruct->stInitStruct.USART_HardwareFlowControl ) )
   {
-    pinMux->runPort(initStruct->rts.port);
-    pinMux->setPinFunction( &( initStruct->rts ), (void *)initStruct->peripheral );
+    // Ensure the port block is being clocked.
+    RCC_AHB1PeriphClockCmd(initStruct->rts.portRCCMask, ENABLE);
+
+    // Init the pin.
+    gpioInitStruct.GPIO_Pin = initStruct->rts.pinMask;
+    GPIO_Init(initStruct->rts.port, &gpioInitStruct);
+
+    // Set the pin's alternate function appropriately.
+    GPIO_PinAFConfig(initStruct->rts.port, initStruct->rts.pinSource, afMaskTable[listIndex]);
   }
 
   // Enable the clock to the U(S)ART in question.
@@ -416,9 +475,8 @@ static _Bool initUsart(uint8_t listIndex, FS_STM32F4xxUSART_PeriphInitStruct_t *
   USART_Init( initStruct->peripheral, &( initStruct->stInitStruct ) );
   USART_Cmd(initStruct->peripheral, ENABLE);
 
-  // Set up the interrupts:
-  USART_ITConfig(initStruct->peripheral, USART_IT_TXE | USART_IT_RXNE, ENABLE);
-
+  // Enable the rx interrupt only - the tx interrupt will be enabled by the write functions.
+  USART_ITConfig(initStruct->peripheral, USART_IT_RXNE, ENABLE);
 
   return true;
 }
@@ -996,6 +1054,9 @@ static uint16_t writeBytes(USART * usart, const char * bytes, uint16_t numBytes)
     // Give the mutex back.
     xSemaphoreGive(usart->txBuffer.mutex);
 
+    // Trigger an interrupt when the tx buffer is empty to cause the main task to unblock.
+    USART_ITConfig(usart->peripheral, USART_IT_TXE, ENABLE);
+
     return numBytes;
   }
 
@@ -1323,31 +1384,32 @@ static void mainLoop(void * params)
   while(true)
   {
     // If the semaphore can't be taken, there's no work to do and the task will block.
-    xSemaphoreTake(irqSyncSemaphore, 0);
-
-    for(i = 0; i < 6; i++)
+    if( pdTRUE == xSemaphoreTake( irqSyncSemaphore, 0 ) )
     {
-      usart = &(usartList[i]);
-
-      if(usart->enabled)
+      for(i = 0; i < 6; i++)
       {
-        // Do tx tasks.
-        if( bufferPop( &( usart->txBuffer ), &data ) )
-        {
-          USART_SendData(usart->peripheral, (uint16_t)data);
-        }
+        usart = &(usartList[i]);
 
-        else
+        if(usart->enabled)
         {
-          // If no data to send, prevent any further tx interrupts.
-          USART_ITConfig(usart->peripheral, USART_IT_TXE, DISABLE);
-        }
+          // Do tx tasks.
+          if( bufferPop( &( usart->txBuffer ), &data ) )
+          {
+            USART_SendData(usart->peripheral, (uint16_t)data);
+          }
 
-        // Check if a byte has been received.
-        if( SET == USART_GetFlagStatus(usart->peripheral, USART_FLAG_RXNE) )
-        {
-          data = (unsigned char)USART_ReceiveData(usart->peripheral);
-          bufferPush( &( usart->rxBuffer), data );
+          else
+          {
+            // If no data to send, prevent any further tx interrupts.
+            USART_ITConfig(usart->peripheral, USART_IT_TXE, DISABLE);
+          }
+
+          // Check if a byte has been received.
+          if( SET == USART_GetFlagStatus(usart->peripheral, USART_FLAG_RXNE) )
+          {
+            data = (unsigned char)USART_ReceiveData(usart->peripheral);
+            bufferPush( &( usart->rxBuffer), data );
+          }
         }
       }
     }

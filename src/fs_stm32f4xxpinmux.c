@@ -22,6 +22,7 @@ void FS_STM32F4xxPinMux_Init(FS_STM32F4xxPinMux_t * instance)
 
 static void runPort(FS_STM32F4xxMuxablePinPort_e port)
 {
+  // TODO Change to deal with being passed a pointer to port!!!!
   RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA << (uint8_t)port);
 }
 
