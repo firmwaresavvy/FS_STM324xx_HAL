@@ -39,12 +39,12 @@
 
 typedef struct
 {
-  FS_DT_USARTDriver_t usart1;
-  FS_DT_USARTDriver_t usart2;
-  FS_DT_USARTDriver_t usart3;
-  FS_DT_USARTDriver_t uart4;
-  FS_DT_USARTDriver_t uart5;
-  FS_DT_USARTDriver_t usart6;
+  FS_DT_IOStream_t usart1;
+  FS_DT_IOStream_t usart2;
+  FS_DT_IOStream_t usart3;
+  FS_DT_IOStream_t uart4;
+  FS_DT_IOStream_t uart5;
+  FS_DT_IOStream_t usart6;
 
 }FS_STM32F4xxUSARTDriver_t;
 
