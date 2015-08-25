@@ -23,6 +23,7 @@
 #include "FS_STM32F4xxPinMux.h"
 
 // ST library includes.
+#include "stm32f4xx.h"
 #include "stm32f4xx_conf.h"
 
 // Project must supply this header.
@@ -61,6 +62,7 @@ typedef struct
   // ST's init structs.
   USART_InitTypeDef stInitStruct;
   USART_ClockInitTypeDef stClkInitStruct;
+  IRQn_Type nvicIrqChannel;
 
   // The pins.
   FS_STM32F4xxMuxablePin_t txd;

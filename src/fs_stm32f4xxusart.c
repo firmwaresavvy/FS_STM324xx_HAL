@@ -360,6 +360,7 @@ void FS_STM32F4xxUSART_PeriphInitStructInit(FS_STM32F4xxUSART_PeriphInitStruct_t
 static _Bool initUsart(uint8_t listIndex, FS_STM32F4xxUSART_PeriphInitStruct_t * initStruct)
 {
   GPIO_InitTypeDef gpioInitStruct;
+  NVIC_InitTypeDef nvicInitStruct;
   /*
   Firstly, check if enough memory remains in the master buffer to
   satisfy the allocation requirements. If not, go no further.
@@ -386,7 +387,8 @@ static _Bool initUsart(uint8_t listIndex, FS_STM32F4xxUSART_PeriphInitStruct_t *
   GPIO_StructInit(&gpioInitStruct);
   gpioInitStruct.GPIO_Mode = GPIO_Mode_AF;
   gpioInitStruct.GPIO_OType = GPIO_OType_PP;
-  gpioInitStruct.GPIO_Speed = GPIO_Speed_50MHz;
+  gpioInitStruct.GPIO_Speed = GPIO_Speed_2MHz;
+  gpioInitStruct.GPIO_PuPd = GPIO_PuPd_UP;
 
   // Tx pin:
 
@@ -474,6 +476,13 @@ static _Bool initUsart(uint8_t listIndex, FS_STM32F4xxUSART_PeriphInitStruct_t *
   // Initialise the U(S)ART peripheral and enable it.
   USART_Init( initStruct->peripheral, &( initStruct->stInitStruct ) );
   USART_Cmd(initStruct->peripheral, ENABLE);
+
+  // Enable the peripheral's channel in the interrupt controlller.
+  nvicInitStruct.NVIC_IRQChannel = initStruct->nvicIrqChannel;
+  nvicInitStruct.NVIC_IRQChannelPreemptionPriority = 8;
+  nvicInitStruct.NVIC_IRQChannelSubPriority = 1;
+  nvicInitStruct.NVIC_IRQChannelCmd = ENABLE;
+  NVIC_Init(&nvicInitStruct);
 
   // Enable the rx interrupt only - the tx interrupt will be enabled by the write functions.
   USART_ITConfig(initStruct->peripheral, USART_IT_RXNE, ENABLE);
@@ -1167,6 +1176,8 @@ static uint16_t readBytes(USART * usart, char * buf, uint16_t numBytes)
       usart->rxBuffer.head = usart->rxBuffer.base + secondBlockLength;
     }
 
+    usart->rxBuffer.fillLevel -= bytesToRead;
+
     // Release the buffer's mutex.
     xSemaphoreGive(usart->rxBuffer.mutex);
 
@@ -1378,8 +1389,10 @@ static uint16_t readLineTruncate(USART * usart, char * buf, uint16_t maxLen)
 static void mainLoop(void * params)
 {
   uint8_t i;
+  uint16_t j;
   USART * usart;
   char data;
+  _Bool rxneSetBeforeSend;
 
   while(true)
   {
@@ -1393,9 +1406,44 @@ static void mainLoop(void * params)
         if(usart->enabled)
         {
           // Do tx tasks.
-          if( bufferPop( &( usart->txBuffer ), &data ) )
+          rxneSetBeforeSend = true;
+
+          if( SET == USART_GetFlagStatus(usart->peripheral, USART_FLAG_TXE) )
           {
-            USART_SendData(usart->peripheral, (uint16_t)data);
+            if( bufferPop( &( usart->txBuffer ), &data ) )
+            {
+              /*
+              It seems that RXNE was being set every time a byte was sent. Here we
+              check the status of that flag prior to the send operation. If the
+              flag was clear before the send but subsequently gets set, we will
+              clear it before going any further.
+              */
+              //if( RESET == USART_GetFlagStatus(usart->peripheral, USART_FLAG_RXNE) )
+              //{
+                //rxneSetBeforeSend = false;
+              //}
+
+              /*
+              This messy disable RX --> transmit --> delay --> re-enable RX
+              arrangement was put in to deal with what seems to be a hardware bug
+              (observed on USART3) whereby the RXNE bit gets set every time a
+              byte is transmitted which leads to a spurious byte receive operation
+              and some nonsense data.
+              */
+              usart->peripheral->CR1 &= ~0x4;
+              USART_SendData( usart->peripheral, ( (uint16_t)data & 0x00FF ) );
+              for(j = 0; j < 1000; j++);
+              usart->peripheral->CR1 |= 0x4;
+
+              // Force RXNE clear if necessary.
+              //if(!rxneSetBeforeSend)
+              //{
+                //data = (char)USART_ReceiveData(usart->peripheral);
+              //}
+
+              // Re-enable TXE interrupts.
+              USART_ITConfig(usart->peripheral, USART_IT_TXE, ENABLE);
+            }
           }
 
           else
@@ -1409,6 +1457,9 @@ static void mainLoop(void * params)
           {
             data = (char)USART_ReceiveData(usart->peripheral);
             bufferPush( &( usart->rxBuffer), data );
+
+            // Re-enable rx interrupts.
+            USART_ITConfig(usart->peripheral, USART_IT_RXNE, ENABLE);
           }
         }
       }
@@ -1577,6 +1628,31 @@ void USART2_IRQHandler(void)
 {
   static BaseType_t higherPriorityTaskWoken;
 
+  /*
+  If a transmit empty condition caused the interrupt, prevent any further
+  TXE interrupts until the main loop has put another data byte into
+  the peripheral's data register.
+  */
+  if( SET == USART_GetITStatus(USART2, USART_IT_TXE) )
+  {
+    USART_ITConfig(USART2, USART_IT_TXE, DISABLE);
+  }
+
+  /*
+  If RXNE is set, disable RXNE interrupts to prevent the IRQ from
+  being reinvoked by that flag until the main loop has serviced the U(S)ART.
+  */
+  if( SET == USART_GetITStatus( USART2, USART_IT_RXNE ) )
+  {
+    USART_ITConfig(USART2, USART_IT_RXNE, DISABLE);
+  }
+
+  else
+  {
+    // Clear spurious RXNE flag.
+    USART_ClearITPendingBit(USART2, USART_IT_RXNE);
+  }
+
   higherPriorityTaskWoken = pdFALSE;
   xSemaphoreGiveFromISR(irqSyncSemaphore, &higherPriorityTaskWoken);
   portYIELD_FROM_ISR(higherPriorityTaskWoken);
@@ -1585,6 +1661,31 @@ void USART2_IRQHandler(void)
 void USART3_IRQHandler(void)
 {
   static BaseType_t higherPriorityTaskWoken;
+
+  /*
+  If a transmit empty condition caused the interrupt, prevent any further
+  TXE interrupts until the main loop has put another data byte into
+  the peripheral's data register.
+  */
+  if( SET == USART_GetITStatus(USART3, USART_IT_TXE) )
+  {
+    USART_ITConfig(USART3, USART_IT_TXE, DISABLE);
+  }
+
+  /*
+  If RXNE is set, disable RXNE interrupts to prevent the IRQ from
+  being reinvoked by that flag until the main loop has serviced the U(S)ART.
+  */
+  if( SET == USART_GetITStatus( USART3, USART_IT_RXNE ) )
+  {
+    USART_ITConfig(USART3, USART_IT_RXNE, DISABLE);
+  }
+
+  else
+  {
+    // Clear spurious RXNE flag.
+    USART_ClearITPendingBit(USART3, USART_IT_RXNE);
+  }
 
   higherPriorityTaskWoken = pdFALSE;
   xSemaphoreGiveFromISR(irqSyncSemaphore, &higherPriorityTaskWoken);
