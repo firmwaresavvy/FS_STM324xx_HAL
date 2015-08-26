@@ -1392,7 +1392,6 @@ static void mainLoop(void * params)
   uint16_t j;
   USART * usart;
   char data;
-  _Bool rxneSetBeforeSend;
 
   while(true)
   {
@@ -1405,43 +1404,11 @@ static void mainLoop(void * params)
 
         if(usart->enabled)
         {
-          // Do tx tasks.
-          rxneSetBeforeSend = true;
-
           if( SET == USART_GetFlagStatus(usart->peripheral, USART_FLAG_TXE) )
           {
             if( bufferPop( &( usart->txBuffer ), &data ) )
             {
-              /*
-              It seems that RXNE was being set every time a byte was sent. Here we
-              check the status of that flag prior to the send operation. If the
-              flag was clear before the send but subsequently gets set, we will
-              clear it before going any further.
-              */
-              //if( RESET == USART_GetFlagStatus(usart->peripheral, USART_FLAG_RXNE) )
-              //{
-                //rxneSetBeforeSend = false;
-              //}
-
-              /*
-              This messy disable RX --> transmit --> delay --> re-enable RX
-              arrangement was put in to deal with what seems to be a hardware bug
-              (observed on USART3) whereby the RXNE bit gets set every time a
-              byte is transmitted which leads to a spurious byte receive operation
-              and some nonsense data.
-              */
-              usart->peripheral->CR1 &= ~0x4;
               USART_SendData( usart->peripheral, ( (uint16_t)data & 0x00FF ) );
-              for(j = 0; j < 1000; j++);
-              usart->peripheral->CR1 |= 0x4;
-
-              // Force RXNE clear if necessary.
-              //if(!rxneSetBeforeSend)
-              //{
-                //data = (char)USART_ReceiveData(usart->peripheral);
-              //}
-
-              // Re-enable TXE interrupts.
               USART_ITConfig(usart->peripheral, USART_IT_TXE, ENABLE);
             }
           }
