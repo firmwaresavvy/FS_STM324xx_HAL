@@ -1,11 +1,9 @@
 /**
  *******************************************************************************
  *
- * @file  FS_STM32F4xxUSART.c
+ * @file
  *
  * @brief STM32F4xx USART driver for use with FreeRTOS.
- *
- * @author Andy Norris [andy@firmwaresavvy.com]
  *
  *******************************************************************************
  */
@@ -35,24 +33,79 @@
 --------------------- START PRIVATE TYPE DEFINITIONS ---------------------------
 ------------------------------------------------------------------------------*/
 
+/*
+ *******************************************************************************
+ *
+ * A structure to hold all metadata for a generic U(S)ART buffer.
+ *
+ * This driver allocates memory for all tx and rx ring buffers from a single
+ * contiguous block of memory (the master buffer). An instance of this type
+ * is required per buffer to describe where the buffer starts, how long it is
+ * and also to contain the buffer's pointers/management data etc.
+ *
+ *******************************************************************************
+ */
 typedef struct
 {
+  //The buffer's offset from the base of the module's master buffer.
   uint16_t base;
+
+  // Buffer length in bytes.
   uint16_t length;
+
+  /*
+  Pointer to the front of the queue (i.e. where data is taken from).
+  This is an offset from the start of the master buffer.
+  */
   uint16_t head;
+
+
+  /*
+  Pointer to the back of the queue (i.e. where data is inserted).
+  This is an offset from the start of the master buffer.
+  */
   uint16_t tail;
+
+  // Number of bytes currently contained by the buffer.
   uint16_t fillLevel;
-  uint16_t highWater; // For debug later.
+
+  // Buffer's highest fill level during the current run-time.
+  uint16_t highWater;
+
+  // Mutex to manage concurrent buffer access by different tasks.
   SemaphoreHandle_t mutex;
 
 }USARTBuffer;
 
+
+/**
+ *******************************************************************************
+ *
+ * @brief A structure containing sufficient information to control a U(S)ART
+ *        peripheral.
+ *
+ *        Also contains the U(S)ART's data buffers.
+ *
+ *******************************************************************************
+ */
 typedef struct
 {
+  /*
+  Pointer to the U(S)ART hardware block for use with the ST
+  Standard Peripheral Library API.
+  */
   USART_TypeDef * peripheral;
+
+  /*
+  Flag to indicate whether the U(S)ART to which the instance
+  of this struct refers is enabled and has been initialised.
+  */
   _Bool enabled;
 
+  // Transmit buffer control/metadata struct.
   USARTBuffer txBuffer;
+
+  // Receive buffer control/metadata struct.
   USARTBuffer rxBuffer;
 
 }USART;
@@ -68,7 +121,9 @@ typedef struct
 ------------------------------------------------------------------------------*/
 
 // Init functions.
-static _Bool initUsart(uint8_t listIndex, FS_STM32F4xxUSART_PeriphInitStruct_t * initStruct);
+static _Bool initUsart( uint8_t listIndex,
+                        FS_STM32F4xxUSART_PeriphInitStruct_t * initStruct );
+
 
 // Redirection functions for peripheral instances.
 static uint16_t usart1_writeBytes(const char * bytes, uint16_t numBytes);
@@ -79,21 +134,21 @@ static uint16_t usart1_readLine(char * buf);
 static uint16_t usart1_readLineTruncate(char * buf, uint16_t maxLen);
 
 static uint16_t usart2_writeBytes(const char * bytes, uint16_t numBytes);
-static uint16_t usart2_writeLine(const char * line);
+static uint16_t usart2_writeLine(const char * line);Init functions.
 static uint16_t usart2_rxBytesAvailable(void);
 static uint16_t usart2_readBytes(char * buf, uint16_t numBytes);
 static uint16_t usart2_readLine(char * buf);
 static uint16_t usart2_readLineTruncate(char * buf, uint16_t maxLen);
 
 static uint16_t usart3_writeBytes(const char * bytes, uint16_t numBytes);
-static uint16_t usart3_writeLine(const char * line);
+static uint16_t usart3_writeLine(const charInit functions. * line);
 static uint16_t usart3_rxBytesAvailable(void);
 static uint16_t usart3_readBytes(char * buf, uint16_t numBytes);
 static uint16_t usart3_readLine(char * buf);
 static uint16_t usart3_readLineTruncate(char * buf, uint16_t maxLen);
 
 static uint16_t uart4_writeBytes(const char * bytes, uint16_t numBytes);
-static uint16_t uart4_writeLine(const char * line);
+static uint16_t uart4_writeLine(const char * line);Init functions.
 static uint16_t uart4_rxBytesAvailable(void);
 static uint16_t uart4_readBytes(char * buf, uint16_t numBytes);
 static uint16_t uart4_readLine(char * buf);
@@ -149,10 +204,16 @@ uint16_t masterBufferAllocatedBytes;
 /*
 List to hold control/management details of all U(S)ART peripherals.
 */
-static USART usartList[6];
+static USART usartList[6];Init functions.
 
-// Interrupt synchronisation semaphore - allows the task to block when no work exists to be done.
-static SemaphoreHandle_t irqSyncSemaphore;
+/*
+Interrupt synchronisation semaphore. The driver operates in such a
+way that the task is blocked under normal conditions. An event on
+any of the U(S)ARTs will fire an interrupt which will cause the
+semaphore to be given, hence unblocking the task. Effectively, the
+task is asleep until an event occurs.
+*/
+SemaphoreHandle_t irqSyncSemaphore;
 
 static const uint32_t periphClkCmdTable[] = {
                                               RCC_APB2Periph_USART1,
